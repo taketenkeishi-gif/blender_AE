@@ -53,9 +53,11 @@ def draw_direct_edit_overlay():
     if area is None or area.type != "VIEW_3D":
         return
 
+    feedback = viewport_service.get_direct_edit_feedback()
     obj = viewport_service.get_active_mv_layer(context)
     if obj is None:
-        _draw_text_line("Direct Edit Mode: ON (No active MV layer)", 18, 22, (1.0, 0.9, 0.4, 1.0))
+        _draw_text_line("Direct Edit Mode: ON (No active MV layer)", 18, 42, (1.0, 0.9, 0.4, 1.0))
+        _draw_text_line(feedback.get("message", ""), 18, 22, (0.8, 0.92, 1.0, 1.0))
         return
 
     rect = project_bound_box_to_region_rect(context, obj)
@@ -76,8 +78,15 @@ def draw_direct_edit_overlay():
 
     # Temporary mapping for 2D MVP:
     # UI X -> object.location.x, UI Y -> object.location.z, UI depth -> object.location.y
-    _draw_text_line("Direct Edit Mode: ON", 18, 44, (1.0, 1.0, 1.0, 1.0))
-    _draw_text_line(f"Layer: {obj.mvlt_layer.display_name or obj.name}", 18, 24, (0.8, 0.92, 1.0, 1.0))
+    state = feedback.get("state", "Ready")
+    target = feedback.get("target", "")
+    message = feedback.get("message", "")
+    _draw_text_line(f"Direct Edit Mode: {state}", 18, 64, (1.0, 1.0, 1.0, 1.0))
+    _draw_text_line(f"Active: {obj.mvlt_layer.display_name or obj.name}", 18, 44, (0.8, 0.92, 1.0, 1.0))
+    if target:
+        _draw_text_line(f"Target: {target}", 18, 24, (1.0, 0.9, 0.4, 1.0))
+    else:
+        _draw_text_line(message, 18, 24, (0.8, 0.92, 1.0, 1.0))
     _draw_text_line(
         f"Pos X:{obj.location.x:.3f}  Y:{obj.location.z:.3f}  Depth:{obj.location.y:.3f}",
         18,
