@@ -7,6 +7,35 @@ from .selection_service import get_active_layer_object, sync_selection_from_cont
 _MODAL_OPERATOR = None
 _DIRECT_EDIT_RUNNING = False
 _STOP_REQUESTED = False
+_DIRECT_EDIT_FEEDBACK = {
+    "state": "Stopped",
+    "target": "",
+    "message": "Direct Edit Mode is stopped",
+}
+
+
+def _layer_display_name(obj):
+    if obj is None:
+        return ""
+    layer = getattr(obj, "mvlt_layer", None)
+    if layer is not None:
+        return layer.display_name or obj.name
+    return obj.name
+
+
+def set_direct_edit_feedback(state=None, target_obj=None, message=None):
+    if state is not None:
+        _DIRECT_EDIT_FEEDBACK["state"] = state
+    if target_obj is not None:
+        _DIRECT_EDIT_FEEDBACK["target"] = _layer_display_name(target_obj)
+    elif target_obj is None and state in {"Stopped", "Ready", "No Hit"}:
+        _DIRECT_EDIT_FEEDBACK["target"] = ""
+    if message is not None:
+        _DIRECT_EDIT_FEEDBACK["message"] = message
+
+
+def get_direct_edit_feedback():
+    return dict(_DIRECT_EDIT_FEEDBACK)
 
 
 def set_modal_operator(operator):
@@ -14,6 +43,10 @@ def set_modal_operator(operator):
     _MODAL_OPERATOR = operator
     _DIRECT_EDIT_RUNNING = True
     _STOP_REQUESTED = False
+    set_direct_edit_feedback(
+        state="Ready",
+        message="Left-drag an editable MV Layer in the viewport",
+    )
 
 
 def clear_modal_operator(operator=None):
@@ -22,6 +55,10 @@ def clear_modal_operator(operator=None):
         _MODAL_OPERATOR = None
         _DIRECT_EDIT_RUNNING = False
         _STOP_REQUESTED = False
+        set_direct_edit_feedback(
+            state="Stopped",
+            message="Direct Edit Mode is stopped",
+        )
 
 
 def get_modal_operator():

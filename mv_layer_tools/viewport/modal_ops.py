@@ -69,12 +69,24 @@ class MVLT_OT_direct_edit_modal(Operator):
 
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             if self.dragging:
+                released_obj = self.target_obj
                 self.dragging = False
                 self.target_obj = None
                 self._suppress_left_drag = False
+                viewport_service.set_direct_edit_feedback(
+                    state="Ready",
+                    target_obj=released_obj,
+                    message="Released. Left-drag another MV Layer to move it.",
+                )
+                tag_redraw_all_view3d()
                 return {"RUNNING_MODAL"}
             if self._suppress_left_drag:
                 self._suppress_left_drag = False
+                viewport_service.set_direct_edit_feedback(
+                    state="Ready",
+                    message="Ready. Left-drag an editable MV Layer.",
+                )
+                tag_redraw_all_view3d()
                 return {"RUNNING_MODAL"}
 
         return {"PASS_THROUGH"}
@@ -99,6 +111,11 @@ class MVLT_OT_direct_edit_modal(Operator):
         obj, _ = viewport_service.find_editable_layer_at_screen_point(context, mouse_x, mouse_y, padding=10)
         if obj is None:
             self._suppress_left_drag = True
+            viewport_service.set_direct_edit_feedback(
+                state="No Hit",
+                message="No editable MV Layer under cursor",
+            )
+            tag_redraw_all_view3d()
             return {"RUNNING_MODAL"}
 
         viewport_service.select_as_active_layer(context, obj)
@@ -106,6 +123,12 @@ class MVLT_OT_direct_edit_modal(Operator):
         self.target_obj = obj
         self.start_location = obj.location.copy()
         self.start_world = transform_mapper.mouse_to_world(context, (mouse_x, mouse_y), self.start_location)
+        viewport_service.set_direct_edit_feedback(
+            state="Dragging",
+            target_obj=obj,
+            message="Dragging selected MV Layer",
+        )
+        tag_redraw_all_view3d()
         return {"RUNNING_MODAL"}
 
     def _handle_mouse_move(self, context, event):
@@ -121,6 +144,11 @@ class MVLT_OT_direct_edit_modal(Operator):
             return False
 
         viewport_service.apply_screen_plane_drag(self.target_obj, self.start_location, delta)
+        viewport_service.set_direct_edit_feedback(
+            state="Dragging",
+            target_obj=self.target_obj,
+            message="Dragging selected MV Layer",
+        )
         if context.area is not None:
             context.area.tag_redraw()
         tag_redraw_all_view3d()

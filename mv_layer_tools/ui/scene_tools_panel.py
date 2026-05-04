@@ -1,7 +1,11 @@
 from bpy.types import Panel
 
 from ..constants import TAB_SCENE
-from ..services.viewport_service import is_direct_edit_mode_running
+from ..services.viewport_service import (
+    get_active_mv_layer,
+    get_direct_edit_feedback,
+    is_direct_edit_mode_running,
+)
 from .draw_helpers import draw_section_header
 from .tabs import MVLT_PT_base_panel
 
@@ -28,8 +32,21 @@ class MVLT_PT_scene_tools_panel(MVLT_PT_base_panel, Panel):
 
         direct_edit = layout.box()
         draw_section_header(direct_edit, "Direct Edit Mode", icon="ORIENTATION_VIEW")
-        state = "Running" if is_direct_edit_mode_running() else "Stopped"
+        running = is_direct_edit_mode_running()
+        state = "Running" if running else "Stopped"
+        feedback = get_direct_edit_feedback()
         direct_edit.label(text=f"Status: {state}")
+
+        active_obj = get_active_mv_layer(context)
+        if active_obj is not None:
+            direct_edit.label(text=f"Active: {active_obj.mvlt_layer.display_name or active_obj.name}")
+        target = feedback.get("target", "")
+        if target:
+            direct_edit.label(text=f"Target: {target}")
+        message = feedback.get("message", "")
+        if message:
+            direct_edit.label(text=f"Hint: {message}")
+
         row = direct_edit.row(align=True)
         row.operator("mvlt.start_direct_edit_mode", icon="PLAY", text="Start Direct Edit")
         row.operator("mvlt.stop_direct_edit_mode", icon="PAUSE", text="Stop Direct Edit")
@@ -49,3 +66,4 @@ class MVLT_PT_scene_tools_panel(MVLT_PT_base_panel, Panel):
             debug.label(text=f"Scene frame: {context.scene.frame_current}")
             debug.label(text=f"Layer items: {len(context.scene.mvlt_ui_state.layer_items)}")
             debug.label(text=f"Direct edit: {state}")
+            debug.label(text=f"Direct state: {feedback.get('state', '')}")
