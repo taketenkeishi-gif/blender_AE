@@ -2,6 +2,7 @@ from .camera_ops import MVLT_OT_init_camera
 from .create_layer import MVLT_OT_register_selected_as_layer
 from .delete_layer import MVLT_OT_delete_layer
 from .duplicate_layer import MVLT_OT_duplicate_layer
+from .external_api_ops import MVLT_OT_start_external_api_server, MVLT_OT_stop_external_api_server
 from .fade_ops import MVLT_OT_apply_fade_in, MVLT_OT_apply_fade_out
 from .grouping_ops import MVLT_OT_assign_group
 from .import_images import MVLT_OT_import_images

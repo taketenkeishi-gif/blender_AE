@@ -6,6 +6,7 @@ from ..services.viewport_service import (
     get_direct_edit_feedback,
     is_direct_edit_mode_running,
 )
+from ..services.external_api_server import get_status as get_external_api_status
 from .draw_helpers import draw_section_header
 from .tabs import MVLT_PT_base_panel
 
@@ -50,6 +51,15 @@ class MVLT_PT_scene_tools_panel(MVLT_PT_base_panel, Panel):
         row = direct_edit.row(align=True)
         row.operator("mvlt.start_direct_edit_mode", icon="PLAY", text="Start Direct Edit")
         row.operator("mvlt.stop_direct_edit_mode", icon="PAUSE", text="Stop Direct Edit")
+
+        external_api = layout.box()
+        draw_section_header(external_api, "External API", icon="URL")
+        api_status = get_external_api_status()
+        external_api.label(text=f"Status: {'Running' if api_status['running'] else 'Stopped'}")
+        external_api.label(text=f"URL: {api_status['url']}")
+        row = external_api.row(align=True)
+        row.operator("mvlt.start_external_api_server", icon="PLAY", text="Start API")
+        row.operator("mvlt.stop_external_api_server", icon="PAUSE", text="Stop API")
 
         defaults = layout.box()
         draw_section_header(defaults, "Defaults", icon="PREFERENCES")

@@ -20,4 +20,10 @@ def shutdown_addon():
         shutdown_viewport_direct_edit()
     except Exception:
         pass
+    try:
+        from .services.external_api_server import stop_server
+
+        stop_server()
+    except Exception:
+        pass
     log_info("Addon shutdown")
