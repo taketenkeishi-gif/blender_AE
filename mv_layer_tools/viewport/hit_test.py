@@ -34,3 +34,24 @@ def hit_test_layer_bounds(context, obj, mouse_x, mouse_y, padding=8):
     if rect is None:
         return False, None
     return point_in_rect(mouse_x, mouse_y, rect, padding=padding), rect
+
+
+def _layer_order(obj):
+    layer = getattr(obj, "mvlt_layer", None)
+    if layer is None:
+        return 0
+    return getattr(layer, "layer_order", 0)
+
+
+def hit_test_topmost_layer_bounds(context, objects, mouse_x, mouse_y, padding=8):
+    candidates = []
+    for obj in objects:
+        hit, rect = hit_test_layer_bounds(context, obj, mouse_x, mouse_y, padding=padding)
+        if hit:
+            candidates.append((obj, rect))
+
+    if not candidates:
+        return None, None
+
+    candidates.sort(key=lambda item: _layer_order(item[0]), reverse=True)
+    return candidates[0]
