@@ -17,57 +17,62 @@ def _mv_layers(scene):
 def get_layer_state(context):
     scene = context.scene
     active = getattr(context.view_layer.objects, "active", None)
+    active_name = ""
+    if active is not None and getattr(active, "mvlt_layer", None) and active.mvlt_layer.is_mv_layer:
+        active_name = active.mvlt_layer.display_name or active.name
     layers = []
     for obj in _mv_layers(scene):
         layers.append(
             {
                 "name": obj.name,
                 "display_name": obj.mvlt_layer.display_name or obj.name,
+                "layer_order": int(obj.mvlt_layer.layer_order),
+                "is_active": bool(active is obj),
+                "is_locked": bool(obj.mvlt_layer.is_locked),
+                "is_hidden": bool(obj.mvlt_layer.is_hidden),
                 "location": {
-                    "x": float(obj.location.x),
-                    "y": float(obj.location.z),
-                    "depth": float(obj.location.y),
+                    "x": obj.location.x,
+                    "y": obj.location.z,
+                    "depth": obj.location.y,
                 },
-                "selected": bool(obj.select_get()),
-                "active": bool(active is obj),
             }
         )
-    return {"layers": layers}
+    return {
+        "layers": layers,
+        "active_layer": active_name,
+        "direct_edit": get_direct_edit_feedback(),
+        "direct_edit_running": is_direct_edit_mode_running(),
+    }
 
 
-def select_layer_by_name(context, name):
+def select_layer_by_name(context, object_name):
     scene = context.scene
-    target = scene.objects.get(name)
+    target = scene.objects.get(object_name)
     if target is None or not getattr(target, "mvlt_layer", None) or not target.mvlt_layer.is_mv_layer:
-        return False, "Layer not found"
+        return {"ok": False, "error": "layer not found"}
     if context.mode == "OBJECT":
         bpy.ops.object.select_all(action="DESELECT")
         target.select_set(True)
     context.view_layer.objects.active = target
     sync_selection_from_context(context)
     refresh_layer_ui_items(scene)
-    return True, "OK"
+    return {"ok": True, "error": ""}
 
 
-def set_layer_location(context, name, x=None, y=None, depth=None):
+def set_layer_location(context, object_name, x=None, y=None, depth=None):
     scene = context.scene
-    target = scene.objects.get(name)
+    target = scene.objects.get(object_name)
     if target is None or not getattr(target, "mvlt_layer", None) or not target.mvlt_layer.is_mv_layer:
-        return False, "Layer not found"
+        return {"ok": False, "error": "layer not found"}
     if x is not None:
         target.location.x = float(x)
     if y is not None:
         target.location.z = float(y)
     if depth is not None:
         target.location.y = float(depth)
-    return True, "OK"
+    return {"ok": True, "error": ""}
 
 
-def get_direct_edit_state(_context):
-    feedback = get_direct_edit_feedback()
-    return {
-        "running": bool(is_direct_edit_mode_running()),
-        "state": feedback.get("state", ""),
-        "target": feedback.get("target", ""),
-        "message": feedback.get("message", ""),
-    }
+def get_direct_edit_state(context):
+    _ = context
+    return {"running": bool(is_direct_edit_mode_running()), "feedback": get_direct_edit_feedback()}

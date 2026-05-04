@@ -6,7 +6,7 @@ from ..services.viewport_service import (
     get_direct_edit_feedback,
     is_direct_edit_mode_running,
 )
-from ..services.external_api_server import get_status as get_external_api_status
+from ..services.external_api_server import get_server_status as get_external_api_status
 from .draw_helpers import draw_section_header
 from .tabs import MVLT_PT_base_panel
 

@@ -10,7 +10,6 @@ from . import external_control_service
 
 HOST = "127.0.0.1"
 PORT = 8765
-URL = f"http://{HOST}:{PORT}"
 
 _SERVER = None
 _SERVER_THREAD = None
@@ -45,7 +44,7 @@ def _run_on_main_thread(func):
     if "error" in result:
         return False, {"ok": False, "error": result["error"]}
     if "value" not in result:
-        return False, {"ok": False, "error": "Main-thread operation timed out"}
+        return False, {"ok": False, "error": "timeout waiting for Blender main thread"}
     return True, result["value"]
 
 
@@ -57,7 +56,7 @@ def _process_task_queue():
         except queue.Empty:
             break
         task()
-    if is_running():
+    if is_server_running():
         return 0.05
     _TIMER_RUNNING = False
     return None
@@ -74,7 +73,7 @@ def _ensure_timer():
 
 def _clear_timer_flag():
     global _TIMER_RUNNING
-    if not is_running():
+    if not is_server_running():
         _TIMER_RUNNING = False
     return None
 
@@ -84,7 +83,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            _json_response(self, 200, {"ok": True, "status": "running", "url": URL})
+            _json_response(self, 200, {"ok": True, "service": "mv_layer_tools", "running": True})
             return
         if self.path == "/state":
             ok, payload = _run_on_main_thread(lambda: external_control_service.get_layer_state(bpy.context))
@@ -94,7 +93,7 @@ class _Handler(BaseHTTPRequestHandler):
             ok, payload = _run_on_main_thread(lambda: external_control_service.get_direct_edit_state(bpy.context))
             _json_response(self, 200 if ok else 500, payload if ok else payload)
             return
-        _json_response(self, 404, {"ok": False, "error": "Not found"})
+        _json_response(self, 404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -102,60 +101,54 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             data = json.loads(raw.decode("utf-8"))
         except Exception:
-            _json_response(self, 400, {"ok": False, "error": "Invalid JSON"})
+            _json_response(self, 400, {"ok": False, "error": "invalid json"})
             return
 
         if self.path == "/select":
             name = data.get("name")
             if not isinstance(name, str) or not name:
-                _json_response(self, 400, {"ok": False, "error": "name is required"})
+                _json_response(self, 400, {"ok": False, "error": "missing name"})
                 return
-            ok, payload = _run_on_main_thread(
-                lambda: _wrap_result(external_control_service.select_layer_by_name(bpy.context, name))
-            )
+            ok, payload = _run_on_main_thread(lambda: external_control_service.select_layer_by_name(bpy.context, name))
             _json_response(self, 200 if ok and payload.get("ok") else 400, payload)
             return
 
         if self.path == "/location":
             name = data.get("name")
             if not isinstance(name, str) or not name:
-                _json_response(self, 400, {"ok": False, "error": "name is required"})
+                _json_response(self, 400, {"ok": False, "error": "missing name"})
                 return
             ok, payload = _run_on_main_thread(
-                lambda: _wrap_result(
-                    external_control_service.set_layer_location(
-                        bpy.context,
-                        name,
-                        x=data.get("x"),
-                        y=data.get("y"),
-                        depth=data.get("depth"),
-                    )
+                lambda: external_control_service.set_layer_location(
+                    bpy.context,
+                    name,
+                    x=data.get("x"),
+                    y=data.get("y"),
+                    depth=data.get("depth"),
                 )
             )
             _json_response(self, 200 if ok and payload.get("ok") else 400, payload)
             return
 
-        _json_response(self, 404, {"ok": False, "error": "Not found"})
+        _json_response(self, 404, {"ok": False, "error": "not found"})
 
     def log_message(self, _format, *_args):
         return
 
 
-def _wrap_result(result):
-    success, message = result
-    return {"ok": bool(success), "message": message}
-
-
-def start_server():
+def start_server(host="127.0.0.1", port=8765):
+    global HOST, PORT
     global _SERVER, _SERVER_THREAD
     with _LOCK:
         if _SERVER is not None:
             return False, "External API server is already running"
+        HOST = host
+        PORT = int(port)
         _SERVER = ThreadingHTTPServer((HOST, PORT), _Handler)
         _SERVER_THREAD = threading.Thread(target=_SERVER.serve_forever, name="mvlt-external-api", daemon=True)
         _SERVER_THREAD.start()
     _ensure_timer()
-    return True, f"External API server started at {URL}"
+    return True, f"External API server started at http://{HOST}:{PORT}"
 
 
 def stop_server():
@@ -175,9 +168,13 @@ def stop_server():
     return True, "External API server stopped"
 
 
-def is_running():
+def is_server_running():
     return _SERVER is not None
 
 
-def get_status():
-    return {"running": is_running(), "url": URL}
+def get_server_status():
+    return {"running": is_server_running(), "url": f"http://{HOST}:{PORT}"}
+
+
+is_running = is_server_running
+get_status = get_server_status
