@@ -1,7 +1,7 @@
 from bpy.types import Operator
 
 from ..services import viewport_service
-from . import hit_test, transform_mapper
+from . import transform_mapper
 from .overlay_draw import register_overlay_draw_handler, tag_redraw_all_view3d, unregister_overlay_draw_handler
 
 
@@ -85,14 +85,10 @@ class MVLT_OT_direct_edit_modal(Operator):
         return False
 
     def _handle_left_mouse_press(self, context, event):
-        obj = viewport_service.get_active_editable_layer(context)
-        if obj is None:
-            return {"PASS_THROUGH"}
-
         mouse_x = event.mouse_region_x
         mouse_y = event.mouse_region_y
-        hit, _ = hit_test.hit_test_layer_bounds(context, obj, mouse_x, mouse_y, padding=10)
-        if not hit:
+        obj, _ = viewport_service.find_editable_layer_at_screen_point(context, mouse_x, mouse_y, padding=10)
+        if obj is None:
             return {"PASS_THROUGH"}
 
         viewport_service.select_as_active_layer(context, obj)

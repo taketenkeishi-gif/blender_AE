@@ -1,7 +1,7 @@
 import bpy
 from mathutils import Vector
 
-from .selection_service import get_active_layer_object
+from .selection_service import get_active_layer_object, sync_selection_from_context
 
 
 _MODAL_OPERATOR = None
@@ -84,6 +84,27 @@ def get_active_editable_layer(context):
     return obj
 
 
+def get_editable_layers(context):
+    scene = getattr(context, "scene", None)
+    if scene is None:
+        return []
+    layers = [obj for obj in scene.objects if is_layer_editable(obj)]
+    layers.sort(key=lambda obj: getattr(obj.mvlt_layer, "layer_order", 0), reverse=True)
+    return layers
+
+
+def find_editable_layer_at_screen_point(context, mouse_x, mouse_y, padding=10):
+    from ..viewport import hit_test
+
+    return hit_test.hit_test_topmost_layer_bounds(
+        context,
+        get_editable_layers(context),
+        mouse_x,
+        mouse_y,
+        padding=padding,
+    )
+
+
 def select_as_active_layer(context, obj):
     if obj is None:
         return
@@ -91,6 +112,7 @@ def select_as_active_layer(context, obj):
         bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
     context.view_layer.objects.active = obj
+    sync_selection_from_context(context)
 
 
 def apply_screen_plane_drag(obj, start_location, delta):
