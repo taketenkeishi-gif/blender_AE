@@ -1,0 +1,857 @@
+# MV Layer Tools 仕様書 v0.2 推移版
+
+## 0. この文書の目的
+
+この文書は、既存の「Blender AE風環境 3本柱 同時進行 企画書」を、実装検証の結果に合わせて更新していくための推移版仕様書である。
+
+初期企画では、Blender Pythonアドオンとして、静止画MV・2D演出・画像合成向けのAE/AviUtl風制作環境を作ることを目標にしていた。現時点では、NパネルUI、C1外部JPEGプレビュー、Blender本物Viewport直接操作の検証を経て、設計上の重要な分岐が発生している。
+
+この文書では、初期方針を破棄せず、検証結果を反映しながら、次の実装対象を具体化する。
+
+---
+
+## 1. 現在の結論
+
+### 1.1 採用する大方針
+
+現時点の最重要結論は以下である。
+
+```text
+プレビュー画面・直接ドラッグ編集:
+  Blender本物Viewportを使う
+
+AviUtl風タイムライン・レイヤー一覧・プロパティ編集:
+  Blender内補助UI、または外部UIとして別途設計する
+
+確認用サムネイル・低頻度プレビュー:
+  C1 JPEG preview方式を補助的に使う余地はある
+
+最終レンダー・エンコード前レンダー:
+  Blender Render / Eevee / Cycles / Compositor を使う
+```
+
+### 1.2 不採用にする方針
+
+以下は、現時点では本線にしない。
+
+```text
+外部UIにJPEG/PNGプレビューを表示し、
+その上で直接ドラッグ編集する方式
+```
+
+理由は、C1検証で以下が確認されたためである。
+
+* JPEGプレビュー表示そのものは成立した
+* しかし直接ドラッグ編集では遅延が大きい
+* UI側操作枠とBlender側オブジェクト位置にズレが出た
+* state更新とpreview更新のタイミング差でワープが発生した
+* 操作感が実用レベルに達しなかった
+
+一方で、Blender本物Viewport上でPlaneを直接ドラッグするMVPでは、以下が確認された。
+
+* 操作枠とPlaneがズレない
+* ワープしない
+* JPEG/HTTP/command/state経由の遅延がない
+* 同じ用途で比較すると、C1方式より明確に快適
+
+したがって、直接操作の中核はBlender Viewportに置く。
+
+---
+
+## 2. 初期企画から維持する3本柱
+
+初期企画の3本柱は維持する。ただし、それぞれの実装場所と責務を再整理する。
+
+### 2.1 柱1: AE / AviUtl風タイムライン
+
+目的は、Blender標準のDope SheetやTimelineを根本置換することではない。
+
+2D素材を時間軸で扱うための操作層を作る。
+
+最低限必要な要素は以下。
+
+* レイヤーごとの開始フレーム
+* レイヤーごとの終了フレーム
+* 表示区間の編集
+* キーフレーム対象の明確化
+* Position / Rotation / Scale / Opacity のキー追加
+* 2D / 擬似3Dレイヤーの時間範囲表示
+* 将来的なバーUIへの拡張余地
+
+現時点の追加方針:
+
+```text
+タイムラインUIは、Blender Viewportとは分離して設計する。
+Viewportはプレビューと直接操作を担当し、
+タイムラインは時間範囲・キー・レイヤー順を担当する。
+```
+
+### 2.2 柱2: 素材取り込み・レイヤー管理
+
+素材は単なるPlaneではなく、MV用レイヤーとして扱う。
+
+最低限必要な要素は以下。
+
+* 複数画像読み込み
+* 連番画像読み込み
+* 画像Plane化
+* 透過対応Material生成
+* 専用Collection整理
+* レイヤー順序管理
+* 表示 / 非表示
+* ロック
+* 選択同期
+* グループ / カテゴリ
+* source_path保持
+* 将来PSDや差分管理へ伸ばせる情報保持
+
+現時点の追加方針:
+
+```text
+レイヤーの選択・直接操作はViewport上でも行う。
+レイヤー一覧UIは、選択状態・表示状態・時間範囲・カテゴリを管理する。
+```
+
+### 2.3 柱3: 平面素材向け演出UI
+
+Blender標準Transform UIやノード画面に潜らず、2D MV頻出演出を素早く操作する。
+
+最低限必要な要素は以下。
+
+* 位置
+* 回転
+* 拡大縮小
+* 不透明度
+* Fade In / Out
+* Shake
+* Zoom
+* 2Dカメラ操作
+* 擬似3D操作
+* 将来的なクリッピング風・ゆらめき風・色味補正
+
+現時点の追加方針:
+
+```text
+頻繁な直接操作はViewport modal operatorで行う。
+数値編集・プリセット適用・キーフレーム化はPanel/Timeline/Property UIで行う。
+```
+
+---
+
+## 3. プレビュー方式の検証結果
+
+### 3.1 C1: 外部JPEG/PNGプレビュー方式
+
+C1方式は以下の構成で検証した。
+
+```text
+Blender
+  ↓ OpenGL render
+preview.jpg / preview.png
+  ↓ HTTP / file read
+外部UI
+  ↓ command.json
+Blender
+```
+
+### 3.2 C1ベンチ結果
+
+C1 split benchmarkでは、以下の傾向が確認された。
+
+```text
+Scene update only:
+  十分高速
+
+OpenGL + PNG write:
+  15fps前後
+
+OpenGL + JPEG write:
+  30fps前後
+```
+
+この結果から、単なる確認用JPEGプレビューとしては成立する可能性がある。
+
+### 3.3 C1 Drag MVP結果
+
+C1 Drag MVP v1/v2/v3では、以下が確認された。
+
+```text
+v1:
+  一応追従するが遅延が大きい
+
+v2:
+  操作枠はある程度許容できる
+  Blenderプレビューはひたすらラグい
+
+v3:
+  反応開始は早い
+  しかしオブジェクトがワープする
+  操作枠とドラッグのリンクも不安定
+```
+
+### 3.4 C1の結論
+
+C1は以下の用途には使える可能性がある。
+
+* 外部UIの確認用サムネイル
+* タイムライン上の低頻度プレビュー
+* 最終レンダー前の簡易確認
+* バックグラウンドプレビュー生成
+
+C1は以下の用途には使わない。
+
+* メインプレビュー画面
+* 直接ドラッグ編集
+* 正規の座標判定
+* Viewport代替
+
+---
+
+## 4. Blender本物Viewport直接操作方式
+
+### 4.1 採用理由
+
+Viewport直接操作MVPでは、以下の流れで検証した。
+
+```text
+Blender Viewport上のマウス操作
+  ↓
+modal operator
+  ↓
+Plane.locationを直接更新
+  ↓
+Blender GPU Viewportが即時描画
+```
+
+この方式では、C1で問題になった以下の経路を挟まない。
+
+* JPEG保存
+* HTTP取得
+* command.json往復
+* state.json同期
+* 外部UI側の推定座標
+* 遅延したscreen_rect
+
+結果として、直接操作用途では最も自然だった。
+
+### 4.2 Viewport直接操作MVPで確認できたこと
+
+確認できた内容:
+
+* PlaneをViewport上で直接ドラッグできる
+* 選択枠とPlaneがズレない
+* 操作中にワープしない
+* 同じ用途ではC1より明確に快適
+
+未確認の内容:
+
+* 複数レイヤー選択
+* 重なったレイヤーのクリック判定
+* 透過PNG素材での当たり判定
+* 回転・拡大縮小ハンドル
+* Z移動
+* 擬似3D回転
+* キーフレーム挿入との統合
+* レイヤー一覧UIとの同期
+* タイムラインUIとの同期
+
+---
+
+## 5. 新しい全体アーキテクチャ
+
+### 5.1 採用アーキテクチャ
+
+```text
+Blender Viewport Layer Editor
+  - 実プレビュー
+  - 直接ドラッグ
+  - 選択枠
+  - ハンドル
+  - 擬似3D操作
+  - カメラ表示
+  - GPU Viewport描画
+
+MV Layer Core
+  - Layer PropertyGroup
+  - Scene PropertyGroup
+  - TimelineModel
+  - LayerModel
+  - EffectModel
+  - Service層
+
+Timeline / Layer UI
+  - AviUtl風タイムライン
+  - レイヤー一覧
+  - キーフレーム編集
+  - エフェクト一覧
+  - 数値プロパティ
+
+Render / Export
+  - Blender Render
+  - Eevee / Cycles
+  - Compositor
+  - 最終動画/連番出力
+
+Optional Passive Preview
+  - C1 JPEG preview
+  - サムネイル
+  - 外部UI低頻度確認
+```
+
+### 5.2 設計原則
+
+* プレビュー画面は外に出さない
+* 直接操作はBlender Viewport上で行う
+* タイムラインUIはViewportから分離する
+* Blender標準UIを完全置換しない
+* Python APIで届く範囲を最大化する
+* fork判断は保留し、必要性が観測で確定してから行う
+* Operatorは薄く、実処理はserviceへ寄せる
+* Viewport操作系は専用moduleへ分離する
+
+---
+
+## 6. モジュール構成の更新案
+
+既存の構成は維持しつつ、Viewport操作系を追加する。
+
+```text
+mv_layer_tools/
+  viewport/
+    __init__.py
+    modal_ops.py
+    overlay_draw.py
+    hit_test.py
+    gizmo_state.py
+    transform_mapper.py
+    camera_space.py
+
+  services/
+    viewport_service.py
+    transform_service.py
+    layer_service.py
+    timeline_service.py
+    animation_service.py
+
+  ui/
+    viewport_toolbar_panel.py
+    layers_panel.py
+    timeline_panel.py
+    effects_panel.py
+
+  models/
+    viewport_model.py
+    gizmo_model.py
+    layer_model.py
+    timeline_model.py
+```
+
+### 6.1 `viewport/modal_ops.py`
+
+責務:
+
+* Viewport上のマウスイベント処理
+* click / drag / release の管理
+* Shift / Alt / Ctrl 修飾キーによる操作切替
+* active layerへの操作反映
+* Blender Undo境界の整理
+
+### 6.2 `viewport/overlay_draw.py`
+
+責務:
+
+* 選択枠描画
+* 中心点描画
+* ハンドル描画
+* 現在値HUD描画
+* 操作モード表示
+* ガイド線描画
+
+### 6.3 `viewport/hit_test.py`
+
+責務:
+
+* クリック位置から対象レイヤーを判定
+* レイヤー重なり時の上位レイヤー優先
+* ロック済みレイヤー除外
+* 非表示レイヤー除外
+* 将来的な透明ピクセル判定の入口
+
+### 6.4 `viewport/transform_mapper.py`
+
+責務:
+
+* screen coordinate → world coordinate
+* world coordinate → screen coordinate
+* XY移動
+* Z移動
+* 回転
+* 拡大縮小
+* anchor point反映
+* camera space / object local space切替
+
+### 6.5 `services/viewport_service.py`
+
+責務:
+
+* active layer取得
+* layer property更新
+* Object transform更新
+* Viewport操作とPropertyGroupの同期
+* キーフレーム自動挿入の入口
+
+---
+
+## 7. 擬似3Dモード仕様
+
+### 7.1 基本思想
+
+本プロジェクトの「2D」は、最終出力と素材性質が2Dであるという意味である。
+
+編集空間には、AviUtl拡張編集に近い擬似3D概念を持たせる。
+
+```text
+素材の本質:
+  2D画像 / 動画 / テキスト
+
+編集空間:
+  2.5D / 擬似3D
+
+最終出力:
+  2D映像
+```
+
+### 7.2 レイヤーの最小Transform
+
+各レイヤーは以下を持つ。
+
+```text
+position_x
+position_y
+position_z
+rotation_x
+rotation_y
+rotation_z
+scale_x
+scale_y
+anchor_x
+anchor_y
+opacity
+frame_start
+frame_end
+```
+
+Blender内部では以下へ対応させる。
+
+```text
+position_x -> Object.location.x
+position_y -> Object.location.y または camera depth
+position_z -> Object.location.z
+rotation_x -> Object.rotation_euler.x
+rotation_y -> Object.rotation_euler.y
+rotation_z -> Object.rotation_euler.z
+scale_x -> Object.scale.x
+scale_y -> Object.scale.y
+opacity -> Material alpha / custom property
+```
+
+注意:
+
+現行MVPでは、カメラ正面Planeとして `x / z` を画面平面、`y` を奥行きとして扱っている。今後、UI表記上の `X/Y/Z` とBlender内部の `x/y/z` 対応を仕様として固定する必要がある。
+
+### 7.3 操作モード
+
+Viewport上の最小操作は以下。
+
+```text
+左ドラッグ:
+  画面平面上の移動
+
+Shift + 左ドラッグ:
+  Z / depth移動
+
+Alt + 左ドラッグ:
+  回転
+
+Ctrl + 左ドラッグ:
+  拡大縮小
+
+Ctrl + Shift + 左ドラッグ:
+  縦横比固定スケール
+
+Esc:
+  modal操作停止
+```
+
+### 7.4 ハンドル仕様
+
+最初に実装するハンドル:
+
+* 中心点
+* 外枠
+* 四隅スケールハンドル
+* 回転ハンドル
+* Z移動ハンドル
+
+後回し:
+
+* 3軸回転ギズモ
+* 透視投影下の精密操作
+* 透明ピクセルクリック判定
+* マスク境界編集
+
+---
+
+## 8. UI責務分離
+
+### 8.1 Viewportが担当するもの
+
+* 実プレビュー
+* レイヤー直接選択
+* ドラッグ移動
+* 回転
+* スケール
+* Z移動
+* 擬似3Dカメラ確認
+* 選択枠
+* ハンドル
+* HUD
+
+### 8.2 タイムラインUIが担当するもの
+
+* レイヤーバー
+* frame_start / frame_end
+* キーフレーム表示
+* キーフレーム追加/削除
+* 時間範囲編集
+* レイヤー順序
+* カット全体の時間管理
+
+### 8.3 レイヤーUIが担当するもの
+
+* レイヤー一覧
+* 表示/非表示
+* ロック
+* 名前変更
+* 複製
+* 削除
+* グループ化
+* カテゴリ
+* source_path確認
+
+### 8.4 プロパティUIが担当するもの
+
+* transform数値編集
+* opacity数値編集
+* effect stack
+* プリセット適用
+* easing
+* 補間方式
+* キーフレーム化
+
+---
+
+## 9. C1方式の残存用途
+
+C1は完全破棄しない。
+
+以下の用途では残す。
+
+```text
+1. タイムラインサムネイル生成
+2. 外部UIの低頻度確認プレビュー
+3. レンダリング前の軽量確認
+4. 比較用preview cache
+5. 将来のリモート確認画面
+```
+
+ただし、次の用途には使わない。
+
+```text
+1. メイン編集プレビュー
+2. ドラッグ中の表示
+3. 直接操作の正規座標
+4. Blender Viewport代替
+```
+
+---
+
+## 10. Fork判断ライン
+
+### 10.1 まだforkしない理由
+
+Viewport直接操作MVPが快適だったため、現時点でBlender forkは不要である。
+
+まずは以下で進める。
+
+```text
+Python modal operator
+Viewport draw handler
+PropertyGroup
+Service層
+Nパネル/補助UI
+必要なら外部Timeline UI
+```
+
+### 10.2 forkを検討する条件
+
+以下が観測で確定した場合のみforkを検討する。
+
+* Python modal operatorではハンドル操作が不安定
+* draw handlerでは必要な描画性能やUI密度に届かない
+* Blender標準イベント処理と競合して操作感が改善できない
+* 独自タイムラインをBlender内Editorとして統合する必要がある
+* Blender Python APIで必要な内部状態へ到達できない
+* Undo/Redoや選択同期がPython層では安定しない
+
+---
+
+## 11. 実装フェーズ再定義
+
+### Phase 0: 方針検証完了
+
+完了済み:
+
+* C1 preview benchmark
+* C1 Drag MVP
+* Viewport Direct Drag MVP
+
+結論:
+
+* C1は直接編集に不適
+* Blender Viewport直接操作を採用候補にする
+
+### Phase 1: Viewport直接操作の基礎化
+
+目的:
+
+Viewport Direct Drag MVPを、アドオン本体の正式機能へ統合する。
+
+実装対象:
+
+* `viewport/modal_ops.py`
+* `viewport/overlay_draw.py`
+* `viewport/hit_test.py`
+* `viewport/transform_mapper.py`
+* `services/viewport_service.py`
+
+完成条件:
+
+* 任意のMV Layer Planeをクリック選択できる
+* ドラッグで画面平面移動できる
+* 選択枠がズレない
+* 複数レイヤーがあっても上位を選べる
+* ロック/非表示を考慮する
+* NパネルからDirect Edit ModeをON/OFFできる
+
+### Phase 2: 2D / 擬似3D Transform操作
+
+目的:
+
+AviUtl風の2.5D操作へ拡張する。
+
+実装対象:
+
+* Shiftドラッグによる奥行き移動
+* Altドラッグによる回転
+* Ctrlドラッグによるスケール
+* 中心点/アンカーの表示
+* HUDで数値表示
+* active layer propertyへの同期
+
+完成条件:
+
+* x/y/z相当の操作が直感的にできる
+* 回転/スケールがViewport上で操作できる
+* 操作結果がLayerSettingsへ保存される
+
+### Phase 3: Timeline / Keyframe統合
+
+目的:
+
+Viewport操作と時間軸を接続する。
+
+実装対象:
+
+* 現在フレームでtransform keyを打つ
+* Auto KeyのON/OFF
+* frame_start / frame_end外では操作対象を薄く表示
+* キーフレームありの状態をHUD/Panelに表示
+* Timeline UIと選択同期
+
+完成条件:
+
+* Viewportで動かした結果をそのままキーフレーム化できる
+* TimelineとViewportのactive layerが一致する
+
+### Phase 4: レイヤー管理の強化
+
+目的:
+
+AviUtl風の制作速度へ寄せる。
+
+実装対象:
+
+* レイヤー複製
+* 上下順序
+* グループ
+* 表示/ロック
+* カテゴリ
+* サムネイル
+* 右クリックメニュー
+
+完成条件:
+
+* 素材30〜100個程度でも管理できる
+* レイヤー一覧とViewportが自然に同期する
+
+### Phase 5: エフェクトUI統合
+
+目的:
+
+2D/擬似3Dレイヤーに頻出演出を素早く適用する。
+
+実装対象:
+
+* Fade In / Out
+* Shake
+* Zoom
+* Opacity
+* Color adjust
+* Blur / Glow候補
+* effect stackのデータ構造
+
+完成条件:
+
+* レイヤーを選択し、1〜2クリックで頻出演出を適用できる
+* キーフレームと整合する
+
+---
+
+## 12. 次の実装タスク
+
+次にやるべき最小タスクは以下。
+
+### Task 1: Viewport Direct Drag MVPを本体構成へ移植
+
+対象候補:
+
+```text
+mv_layer_tools/viewport/modal_ops.py
+mv_layer_tools/viewport/overlay_draw.py
+mv_layer_tools/viewport/hit_test.py
+mv_layer_tools/viewport/transform_mapper.py
+mv_layer_tools/services/viewport_service.py
+mv_layer_tools/registration/classes.py
+mv_layer_tools/ui/scene_tools_panel.py
+```
+
+作業内容:
+
+* MVPスクリプトを単発実験から正式moduleへ分解する
+* Direct Edit Mode operatorを追加する
+* Viewport draw handlerを登録/解除できるようにする
+* modal operatorをON/OFFできるようにする
+* active MV layerだけを操作対象にする
+
+検証:
+
+* Blender起動
+* アドオン有効化
+* Initialize 2D Scene
+* Import Images
+* Direct Edit Mode ON
+* ViewportでPlaneをドラッグ
+* Layers UIのactive layerと一致すること
+
+### Task 2: 座標系仕様を固定
+
+決めること:
+
+```text
+UI表記 X/Y/Z
+Blender内部 x/y/z
+カメラ正面平面
+奥行き方向
+正射影/透視投影
+```
+
+現時点の候補:
+
+```text
+UI X -> Blender location.x
+UI Y -> Blender location.z
+UI Z -> Blender location.y または camera depth
+```
+
+注意:
+
+既存の `frame_start / frame_end / opacity / layer_order` と同様に、Transform値もPropertyGroupに保存するか、Blender Object transformを正とするかを決める必要がある。
+
+### Task 3: 選択同期を復旧・強化
+
+現状、過去の差分で `depsgraph_update_post` による選択同期が削除されていた。
+
+今後は、Viewport直接操作が主役になるため、選択同期は重要度が上がる。
+
+検討する方式:
+
+* depsgraph handlerで同期
+* modal operator内で同期
+* UIList選択時に同期
+* active layer serviceを中心に同期
+
+---
+
+## 13. 仕様決定ログ
+
+### Decision 001
+
+C1 JPEG/PNG preview方式は、直接ドラッグ編集の主方式にしない。
+
+### Decision 002
+
+プレビュー画面と直接編集はBlender本物Viewportを使う。
+
+### Decision 003
+
+AviUtl風タイムラインは、Viewportとは責務分離する。
+
+### Decision 004
+
+Blender forkは現時点では行わない。Python modal operator + draw handlerで限界を測る。
+
+### Decision 005
+
+C1方式はサムネイル・低頻度確認用として残す可能性がある。
+
+---
+
+## 14. 未確定事項
+
+* UI表記のX/Y/ZとBlender内部座標の対応
+* レイヤーTransform値の正本をPropertyGroupにするかObject transformにするか
+* Direct Edit Modeを常時ONにするか、明示ON/OFFにするか
+* 複数レイヤー重なり時の選択優先順位
+* 透明PNGのクリック判定をどこまで行うか
+* 擬似3Dで透視投影を扱うか、最初は正射影に固定するか
+* Timeline UIをBlender内に寄せるか、外部UIにするか
+* 外部UIを使う場合の通信方式
+* Undo/RedoをBlender標準に寄せるか、独自コマンド履歴を持つか
+
+---
+
+## 15. 次回更新で追加する候補
+
+次回以降、以下を具体化する。
+
+* Viewport Direct Edit Mode 詳細仕様
+* Transform操作の座標変換式
+* Hit Test仕様
+* Overlay描画仕様
+* LayerSettings拡張案
+* Timeline UIワイヤーフレーム
+* 擬似3Dカメラ操作仕様
+* Auto Key仕様
+* Undo/Redo境界
+* Direct Edit Modeの手動テストケース
