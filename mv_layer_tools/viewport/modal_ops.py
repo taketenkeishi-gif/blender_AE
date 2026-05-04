@@ -18,6 +18,7 @@ class MVLT_OT_direct_edit_modal(Operator):
         self._timer = None
         self._external_stop_requested = False
         self._cleaned = False
+        self._suppress_left_drag = False
 
     def request_external_stop(self):
         self._external_stop_requested = True
@@ -60,13 +61,21 @@ class MVLT_OT_direct_edit_modal(Operator):
             return self._handle_left_mouse_press(context, event)
 
         if event.type == "MOUSEMOVE" and self.dragging:
-            if self._handle_mouse_move(context, event):
-                return {"RUNNING_MODAL"}
-
-        if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self.dragging:
-            self.dragging = False
-            self.target_obj = None
+            self._handle_mouse_move(context, event)
             return {"RUNNING_MODAL"}
+
+        if event.type == "MOUSEMOVE" and self._suppress_left_drag:
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if self.dragging:
+                self.dragging = False
+                self.target_obj = None
+                self._suppress_left_drag = False
+                return {"RUNNING_MODAL"}
+            if self._suppress_left_drag:
+                self._suppress_left_drag = False
+                return {"RUNNING_MODAL"}
 
         return {"PASS_THROUGH"}
 
@@ -89,7 +98,8 @@ class MVLT_OT_direct_edit_modal(Operator):
         mouse_y = event.mouse_region_y
         obj, _ = viewport_service.find_editable_layer_at_screen_point(context, mouse_x, mouse_y, padding=10)
         if obj is None:
-            return {"PASS_THROUGH"}
+            self._suppress_left_drag = True
+            return {"RUNNING_MODAL"}
 
         viewport_service.select_as_active_layer(context, obj)
         self.dragging = True
@@ -125,6 +135,7 @@ class MVLT_OT_direct_edit_modal(Operator):
         self.target_obj = None
         self.start_location = None
         self.start_world = None
+        self._suppress_left_drag = False
 
         window_manager = getattr(context, "window_manager", None)
         if self._timer is not None and window_manager is not None:
